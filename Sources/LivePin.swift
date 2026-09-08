@@ -168,6 +168,47 @@ final class BubbleView: NSView {
     override func accessibilityPerformPress() -> Bool { onOpenOriginal?(); return true }
 }
 
+/// Small pill at the original window's corner while it is out: one click sends the window back into the icon.
+final class ReturnBadgeView: NSView {
+    static let size = CGSize(width: 58, height: 32)
+    private let pill = CALayer()
+    private let icon = CALayer()
+    private let chevron = CAShapeLayer()
+    var onReturn: (() -> Void)?
+    init(image: NSImage, app: String) {
+        super.init(frame: NSRect(origin: .zero, size: Self.size))
+        wantsLayer = true
+        layer?.masksToBounds = false
+        pill.frame = CGRect(x: 3, y: 3, width: Self.size.width - 6, height: Self.size.height - 6)
+        pill.cornerRadius = pill.frame.height / 2
+        pill.backgroundColor = NSColor(white: 0.12, alpha: 0.92).cgColor
+        pill.borderColor = NSColor(white: 1, alpha: 0.18).cgColor
+        pill.borderWidth = 1
+        pill.shadowColor = NSColor.black.cgColor
+        pill.shadowOpacity = 0.35; pill.shadowRadius = 4; pill.shadowOffset = CGSize(width: 0, height: -1)
+        icon.frame = CGRect(x: 9, y: 7, width: 18, height: 18)
+        icon.contentsGravity = .resizeAspect
+        icon.contentsScale = 2
+        icon.contents = crispIcon(image, side: 18, scale: 2)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 36, y: 18)); path.addLine(to: CGPoint(x: 41, y: 13)); path.addLine(to: CGPoint(x: 46, y: 18))
+        chevron.path = path
+        chevron.strokeColor = NSColor.white.cgColor
+        chevron.fillColor = nil
+        chevron.lineWidth = 2; chevron.lineCap = .round; chevron.lineJoin = .round
+        layer?.addSublayer(pill); layer?.addSublayer(icon); layer?.addSublayer(chevron)
+        toolTip = "\(app) zurück ins Symbol (⌃⌥P)"
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(app) zurück ins Symbol")
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) { if bounds.contains(convert(event.locationInWindow, from: nil)) { onReturn?() } }
+    override func accessibilityPerformPress() -> Bool { onReturn?(); return true }
+}
+
 final class LivePreview: NSView {
     let video = AVSampleBufferDisplayLayer()
     var openOriginal: (() -> Void)?
@@ -192,8 +233,11 @@ final class LiveSession: NSObject, SCStreamOutput, SCStreamDelegate, NSWindowDel
     let entry: WindowEntry
     let panel: NSPanel
     let bubble: NSPanel
+    let badge: NSPanel
     let preview = LivePreview(frame: .zero)
     private let bubbleView: BubbleView
+    private let badgeView: ReturnBadgeView
+    private var follow: Timer?
     private let panelMinSize = NSSize(width: 280, height: 190)
     private var expandedSize: NSSize
     private var collapsed = true
@@ -218,7 +262,21 @@ final class LiveSession: NSObject, SCStreamOutput, SCStreamDelegate, NSWindowDel
         let image = NSRunningApplication(processIdentifier: entry.pid)?.icon ?? NSImage(named: NSImage.applicationIconName)!
         bubbleView = BubbleView(image: image, app: entry.app)
         bubble = NSPanel(contentRect: NSRect(origin: .zero, size: bubbleSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        badgeView = ReturnBadgeView(image: image, app: entry.app)
+        badge = NSPanel(contentRect: NSRect(origin: .zero, size: ReturnBadgeView.size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
+        for floating in [bubble, badge] {
+            floating.isOpaque = false
+            floating.backgroundColor = .clear
+            floating.hasShadow = false
+            floating.level = .floating
+            floating.hidesOnDeactivate = false
+            floating.isReleasedWhenClosed = false
+            floating.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        }
+        badge.contentView = badgeView
+        badge.title = "\(entry.app) · OpenPin Zurück"
+        badgeView.onReturn = { [weak self] in self?.returnToIcon() }
         panel.title = "\(entry.app) · OpenPin"
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -226,13 +284,6 @@ final class LiveSession: NSObject, SCStreamOutput, SCStreamDelegate, NSWindowDel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.minSize = panelMinSize
         panel.delegate = self
-        bubble.isOpaque = false
-        bubble.backgroundColor = .clear
-        bubble.hasShadow = false
-        bubble.level = .floating
-        bubble.hidesOnDeactivate = false
-        bubble.isReleasedWhenClosed = false
-        bubble.collectionBehavior = panel.collectionBehavior
         bubble.contentView = bubbleView
         bubble.title = "\(entry.app) · OpenPin Symbol"
         bubbleView.onExpand = { [weak self] in self?.expand() }
@@ -317,7 +368,40 @@ final class LiveSession: NSObject, SCStreamOutput, SCStreamDelegate, NSWindowDel
     }
 
     private var visible: Bool { !stopped && firstFrame && !paused && !handedOff }
-    private func hideAll() { panel.orderOut(nil); bubble.orderOut(nil) }
+    private func hideAll() { panel.orderOut(nil); bubble.orderOut(nil); hideBadge() }
+    private func hideBadge() { follow?.invalidate(); follow = nil; badge.orderOut(nil) }
+
+    /// While the original is out, keep a small return pill at its top-right corner.
+    private func followOriginal() {
+        follow?.invalidate()
+        follow = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.positionBadge() }
+        positionBadge()
+    }
+    private func positionBadge() {
+        guard handedOff, !stopped, let primary = NSScreen.screens.first,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == entry.pid,
+              let rect = axRect(entry.element), (axValue(entry.element, kAXMinimizedAttribute) as? Bool) != true else { badge.orderOut(nil); return }
+        let size = ReturnBadgeView.size
+        let origin = NSPoint(x: rect.maxX - size.width - 6, y: primary.frame.maxY - rect.minY - size.height - 6)
+        badge.setFrameOrigin(origin)
+        if !badge.isVisible { badge.orderFrontRegardless() }
+    }
+
+    /// Send the original window back into the icon: hide it (or minimize it when the app has other windows) and pop the bubble.
+    func returnToIcon() {
+        guard handedOff, !stopped, let app = NSRunningApplication(processIdentifier: entry.pid) else { return }
+        hideBadge()
+        let windows = axValue(AXUIElementCreateApplication(entry.pid), kAXWindowsAttribute) as? [AXUIElement] ?? []
+        let others = windows.filter { !CFEqual($0, entry.element) && (axRect($0).map { $0.width > 80 && $0.height > 50 } ?? false) }
+        if others.isEmpty { app.hide() } else { _ = AXUIElementSetAttributeValue(entry.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
+        handedOff = false
+        collapsed = true
+        panel.orderOut(nil)
+        present()
+        bubbleView.pop()
+        onStatus?("Symbol schwebt · Klick öffnet das Original")
+    }
+    var isOut: Bool { handedOff && !stopped }
     private func showBubble() {
         panel.orderOut(nil)
         bubbleView.layer?.removeAnimation(forKey: "transform.scale")
@@ -397,6 +481,7 @@ final class LiveSession: NSObject, SCStreamOutput, SCStreamDelegate, NSWindowDel
         }
         guard !stopped, firstFrame else { return }
         present()
+        if handedOff && frontPID == entry.pid && follow == nil { followOriginal() }
     }
 
     func show() {
@@ -431,7 +516,7 @@ final class LiveSession: NSObject, SCStreamOutput, SCStreamDelegate, NSWindowDel
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             guard let self, self.handedOff else { return }
             let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            if front != self.entry.pid { self.update(frontPID: front, paused: self.paused) }
+            if front != self.entry.pid { self.update(frontPID: front, paused: self.paused) } else { self.followOriginal() }
         }
         onStatus?("Original geöffnet · \(collapsed ? "Symbol" : "Live-Ansicht") kehrt beim App-Wechsel zurück")
     }
@@ -481,12 +566,26 @@ final class LivePinController {
     private var pending: [UUID: Task<Void, Never>] = [:]
     private var paused = false
     private var observer: NSObjectProtocol?
+    private var keyMonitor: Any?
     init() {
         observer = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.updatePanels()
         }
+        // ⌃⌥P while a pinned window is in front sends it back into its icon. Listen-only; needs the Accessibility trust we already require.
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 35, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.control, .option]) else { return }
+            self?.returnFrontToIcon()
+        }
     }
-    deinit { if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) } }
+    deinit {
+        if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+    }
+    /// Send the frontmost pinned window back into its icon.
+    func returnFrontToIcon() {
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        for session in sessions.values where session.isOut && session.entry.pid == pid { session.returnToIcon() }
+    }
     func toggle(_ entry: WindowEntry) {
         if sessions[entry.id] != nil || pending[entry.id] != nil { release(entry.id); return }
         changed?(entry.id, true, "Live-Ansicht startet…")

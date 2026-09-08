@@ -12,9 +12,11 @@ Driven through the accessibility tree and WindowServer metadata on a three-displ
 | Icon returns | Activating Finder brought the bubble back at the same position. |
 | Live view grows from the icon | ⌘L opened the 520×352 panel sharing the bubble's top-right corner (2900, −56 vs. bubble 3324, −56). |
 | Collapse | „Als Symbol“ removed the panel and placed the bubble back at (3324, −56). |
-| Tests and build | 8 capture-source and 4 bubble-geometry tests pass; signed local build succeeded. |
+| Return pill | While Spotify was out, a 58×32 layer-3 window „Spotify · OpenPin Zurück“ sat at (1448, 44), the top-right corner of Spotify's window at (0, 39, 1512×893). |
+| Back into the icon | Pressing the pill hid Spotify (process no longer visible), Finder became frontmost and the bubble reappeared at its previous position (900, 500). Clicking the bubble again unhid and raised Spotify. |
+| Tests and build | 8 capture-source and 4 bubble-geometry tests pass; signed local build with the new AppIcon.icns succeeded. |
 
-Not tested this round: real mouse drag of the bubble, right-click menu, multiple simultaneous bubbles, reduced-motion path, and apps that ignore accessibility position changes.
+Not tested this round: real mouse drag of the bubble, right-click menu, the ⌃⌥P shortcut, multiple simultaneous bubbles, the minimize path for multi-window apps, reduced-motion path, and apps that ignore accessibility position changes.
 
 
 ## Live-view result: passed for Spotify

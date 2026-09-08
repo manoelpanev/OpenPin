@@ -208,7 +208,7 @@ struct PinInterface: View {
                         Circle().fill(model.paused ? Color.orange : accent).frame(width: 7, height: 7)
                         Text(model.paused ? "Symbole ausgeblendet" : "\(model.pinnedCount) Fenster angeheftet").font(.system(size: 12, weight: .medium))
                     }
-                    Text("Jedes angeheftete Fenster schwebt als App-Symbol oben. Klick auf das Symbol öffnet das Original; beim App-Wechsel schwebt das Symbol wieder. Rechtsklick zeigt die Live-Ansicht, „Als Symbol“ zieht sie zurück.")
+                    Text("Jedes angeheftete Fenster schwebt als App-Symbol oben. Klick auf das Symbol öffnet das Original. Die kleine Ecke am Fenster oder ⌃⌥P schickt es zurück ins Symbol. Rechtsklick zeigt die Live-Ansicht.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }.padding(.top, 12)
             }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -263,7 +263,7 @@ final class PinApplication: NSObject, NSApplicationDelegate {
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         status.button?.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "OpenPin")
         let menu = NSMenu()
-        for (title, selector) in [("OpenPin öffnen", #selector(show)), ("Alle lösen", #selector(releaseAll)), ("Beenden", #selector(quit))] {
+        for (title, selector) in [("OpenPin öffnen", #selector(show)), ("Fenster zurück ins Symbol  ⌃⌥P", #selector(returnToIcon)), ("Alle lösen", #selector(releaseAll)), ("Beenden", #selector(quit))] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }; status.menu = menu
         model.statusChanged = { [weak self] count, paused in self?.status.button?.title = count > 0 ? " \(count)\(paused ? " Ⅱ" : "")" : "" }
@@ -274,6 +274,7 @@ final class PinApplication: NSObject, NSApplicationDelegate {
     }
     @objc func show() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc func releaseAll() { model.releaseAll() }
+    @objc func returnToIcon() { model.live.returnFrontToIcon() }
     @objc func showLiveViews() { model.engine.setPaused(false); model.live.showAll() }
     func applicationWillTerminate(_ notification: Notification) { model.live.releaseAll() }
     @objc func quit() { NSApp.terminate(nil) }

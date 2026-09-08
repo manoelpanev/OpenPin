@@ -26,8 +26,9 @@ if ! "$adhoc"; then
   fi
   if [ "$identity" = '-' ]; then echo 'Use --adhoc explicitly for ad-hoc signing.' >&2; exit 2; fi
 fi
-mkdir -p build/cache build/objects build/OpenPin.app/Contents/MacOS
+mkdir -p build/cache build/objects build/OpenPin.app/Contents/MacOS build/OpenPin.app/Contents/Resources
 cp Resources/Info.plist build/OpenPin.app/Contents/Info.plist
+cp Resources/AppIcon.icns build/OpenPin.app/Contents/Resources/AppIcon.icns
 objects=()
 for architecture in $architectures; do
   object="build/objects/OpenPin-$architecture"
