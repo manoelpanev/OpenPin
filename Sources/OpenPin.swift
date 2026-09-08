@@ -100,6 +100,7 @@ final class PinEngine {
     }
 }
 
+@MainActor
 final class PinModel: ObservableObject {
     @Published var windows: [WindowEntry] = []
     @Published var access = false
@@ -108,6 +109,7 @@ final class PinModel: ObservableObject {
     @Published var pinnedOnly = false
     let engine = PinEngine()
     let live = LivePinController()
+    let switcher = SwitcherController()
     var statusChanged: ((Int, Bool) -> Void)?
     var pinnedCount: Int { windows.filter(\.pinned).count }
     var filtered: [WindowEntry] {
@@ -115,10 +117,12 @@ final class PinModel: ObservableObject {
     }
     init() {
         live.changed = { [weak self] id, pinned, note in self?.engine.setPin(id, pinned: pinned, note: note) }
+        switcher.install()
         engine.onChange = { [weak self] entries, access, paused in
             guard let self else { return }
             self.windows = entries; self.access = access; self.paused = paused
             self.live.reconcile(entries, paused: paused)
+            self.switcher.reconcile(entries)
             self.statusChanged?(self.pinnedCount, paused)
         }; engine.start()
     }
@@ -241,6 +245,7 @@ struct PinInterface: View {
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(entry.pinned ? accent.opacity(0.3) : Color.primary.opacity(0.07)))
     }
 }
+@MainActor
 final class PinApplication: NSObject, NSApplicationDelegate {
     let model = PinModel()
     var window: NSWindow!
@@ -259,11 +264,14 @@ final class PinApplication: NSObject, NSApplicationDelegate {
         let showLive = NSMenuItem(title: "Live-Ansichten anzeigen", action: #selector(showLiveViews), keyEquivalent: "l")
         showLive.target = self
         windowsMenu.submenu?.addItem(showLive)
+        let switcherItem = NSMenuItem(title: "Fensterübersicht anzeigen  ⌥Leertaste", action: #selector(showSwitcher), keyEquivalent: "")
+        switcherItem.target = self
+        windowsMenu.submenu?.addItem(switcherItem)
         main.addItem(windowsMenu)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         status.button?.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "OpenPin")
         let menu = NSMenu()
-        for (title, selector) in [("OpenPin öffnen", #selector(show)), ("Fenster zurück ins Symbol  ⌃⌥P", #selector(returnToIcon)), ("Alle lösen", #selector(releaseAll)), ("Beenden", #selector(quit))] {
+        for (title, selector) in [("OpenPin öffnen", #selector(show)), ("Fensterübersicht  ⌥Leertaste", #selector(showSwitcher)), ("Fenster zurück ins Symbol  ⌃⌥P", #selector(returnToIcon)), ("Alle lösen", #selector(releaseAll)), ("Beenden", #selector(quit))] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }; status.menu = menu
         model.statusChanged = { [weak self] count, paused in self?.status.button?.title = count > 0 ? " \(count)\(paused ? " Ⅱ" : "")" : "" }
@@ -276,6 +284,7 @@ final class PinApplication: NSObject, NSApplicationDelegate {
     @objc func releaseAll() { model.releaseAll() }
     @objc func returnToIcon() { model.live.returnFrontToIcon() }
     @objc func showLiveViews() { model.engine.setPaused(false); model.live.showAll() }
+    @objc func showSwitcher() { model.switcher.showFromMenu() }
     func applicationWillTerminate(_ notification: Notification) { model.live.releaseAll() }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { show(); return true }
