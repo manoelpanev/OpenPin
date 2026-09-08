@@ -1,0 +1,12 @@
+.DS_Store
+build/
+dist/
+.build/
+.signing-identity.local
+*.p12
+*.pfx
+*.key
+*.cer
+*.mobileprovision
+*.provisionprofile
+.env*

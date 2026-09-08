@@ -1,0 +1,22 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test ordering policy
+        run: bash scripts/test.sh
+      - name: Build universal experimental app
+        run: bash scripts/build.sh --adhoc --universal
+      - name: Package DMG
+        run: bash scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PinFenster-experimental
+          path: dist/*
