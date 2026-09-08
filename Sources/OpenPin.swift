@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
+import Combine
 import ApplicationServices
+import ServiceManagement
 
 // Native AX handles only. No screenshots, synthetic input, or target activation.
 func axValue(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -100,6 +102,28 @@ final class PinEngine {
     }
 }
 
+/// Persisted user preferences, backed by UserDefaults. Autostart mirrors the login-item
+/// registration itself, so `autostart` always reflects the real SMAppService status,
+/// not just an intention — reading it back after launch avoids drift if the user
+/// removed OpenPin from Login Items outside the app.
+@MainActor
+final class AppSettings: ObservableObject {
+    @Published var darkMode: Bool { didSet { UserDefaults.standard.set(darkMode, forKey: "darkMode") } }
+    @Published var mainWindowPinned: Bool { didSet { UserDefaults.standard.set(mainWindowPinned, forKey: "mainWindowPinned") } }
+    @Published var autostart: Bool {
+        didSet {
+            guard autostart != (SMAppService.mainApp.status == .enabled) else { return }
+            do { try autostart ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister() }
+            catch { autostart = SMAppService.mainApp.status == .enabled }
+        }
+    }
+    init() {
+        darkMode = UserDefaults.standard.object(forKey: "darkMode") as? Bool ?? true
+        mainWindowPinned = UserDefaults.standard.bool(forKey: "mainWindowPinned")
+        autostart = SMAppService.mainApp.status == .enabled
+    }
+}
+
 @MainActor
 final class PinModel: ObservableObject {
     @Published var windows: [WindowEntry] = []
@@ -136,15 +160,20 @@ final class PinModel: ObservableObject {
     }
     func releaseAll() { live.releaseAll(); engine.releaseAll() }
 }
-private let accent = Color(red: 0.10, green: 0.49, blue: 0.43)
+private let accent = Color(red: 0.20, green: 0.62, blue: 0.55)
 struct PinInterface: View {
     @ObservedObject var model: PinModel
+    @ObservedObject var settings: AppSettings
+    @State private var showSettings = false
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 10) {
                     Image(systemName: "pin.fill").font(.system(size: 22)).foregroundStyle(accent)
                     Text("OpenPin").font(.system(size: 21, weight: .bold))
+                    Spacer()
+                    Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }
+                        .buttonStyle(.plain).help("Einstellungen").accessibilityLabel("Einstellungen")
                 }.padding(.top, 12)
                 VStack(spacing: 6) {
                     navigation("Alle Fenster", icon: "macwindow.on.rectangle", count: model.windows.count, selected: !model.pinnedOnly) { model.pinnedOnly = false }
@@ -168,9 +197,16 @@ struct PinInterface: View {
                         Text("Das App-Symbol schwebt oben. Ein Klick holt das Fenster heraus.").font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button { settings.mainWindowPinned.toggle() } label: { Image(systemName: settings.mainWindowPinned ? "pin.fill" : "pin") }
+                        .help(settings.mainWindowPinned ? "Immer im Vordergrund: an" : "Immer im Vordergrund: aus")
+                        .accessibilityLabel(settings.mainWindowPinned ? "OpenPin-Fenster lösen" : "OpenPin-Fenster anheften")
+                        .foregroundStyle(settings.mainWindowPinned ? accent : .secondary)
                     Button { model.engine.refresh() } label: { Image(systemName: "arrow.clockwise") }
                         .help("Fensterliste aktualisieren").accessibilityLabel("Fensterliste aktualisieren")
                 }.padding(.bottom, 22)
+                if showSettings {
+                    settingsPanel.transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 if !model.access {
                     VStack(alignment: .leading, spacing: 14) {
                         Label("Einmal Zugriff erlauben", systemImage: "hand.raised.fill").font(.headline)
@@ -217,6 +253,24 @@ struct PinInterface: View {
                 }.padding(.top, 12)
             }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
         }.frame(minWidth: 900, minHeight: 590).tint(accent)
+        .animation(.easeInOut(duration: 0.15), value: showSettings)
+        .preferredColorScheme(settings.darkMode ? .dark : .light)
+    }
+    var settingsPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("EINSTELLUNGEN").font(.system(size: 10, weight: .semibold)).tracking(1.1).foregroundStyle(.secondary)
+            Toggle(isOn: $settings.darkMode) {
+                Label("Dark Mode", systemImage: settings.darkMode ? "moon.fill" : "sun.max.fill")
+            }
+            Toggle(isOn: $settings.autostart) {
+                Label("Beim Anmelden starten", systemImage: "power")
+            }
+            Toggle(isOn: $settings.mainWindowPinned) {
+                Label("Fenster immer im Vordergrund", systemImage: "pin")
+            }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.bottom, 18)
     }
     func navigation(_ title: String, icon: String, count: Int, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -248,8 +302,10 @@ struct PinInterface: View {
 @MainActor
 final class PinApplication: NSObject, NSApplicationDelegate {
     let model = PinModel()
+    let settings = AppSettings()
     var window: NSWindow!
     var status: NSStatusItem!
+    private var pinObserver: AnyCancellable?
     func applicationDidFinishLaunching(_ notification: Notification) {
         let main = NSMenu(); let parent = NSMenuItem(); main.addItem(parent)
         let appMenu = NSMenu(); parent.submenu = appMenu
@@ -277,8 +333,11 @@ final class PinApplication: NSObject, NSApplicationDelegate {
         model.statusChanged = { [weak self] count, paused in self?.status.button?.title = count > 0 ? " \(count)\(paused ? " Ⅱ" : "")" : "" }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 660), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "OpenPin"; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: PinInterface(model: model))
-        window.minSize = NSSize(width: 900, height: 620); window.center(); show()
+        window.contentView = NSHostingView(rootView: PinInterface(model: model, settings: settings))
+        window.minSize = NSSize(width: 900, height: 620); window.center()
+        window.level = settings.mainWindowPinned ? .floating : .normal
+        pinObserver = settings.$mainWindowPinned.sink { [weak self] pinned in self?.window.level = pinned ? .floating : .normal }
+        show()
     }
     @objc func show() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc func releaseAll() { model.releaseAll() }

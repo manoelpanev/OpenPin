@@ -171,7 +171,7 @@ struct VisualEffect: NSViewRepresentable {
 final class SwitcherPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     init() {
-        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        super.init(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
@@ -226,7 +226,8 @@ final class SwitcherController: NSObject, NSWindowDelegate {
         // Activate first: doing this after makeKeyAndOrderFront steals the panel's key status right back,
         // which immediately fires windowDidResignKey and closes the panel before it is ever seen.
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
+        panel.makeKey()
         visible = true
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.14
