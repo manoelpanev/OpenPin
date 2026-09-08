@@ -16,5 +16,5 @@ cp README.md "$stage/READ-ME.md"
 image="dist/PinFenster-$version-experimental-$architecture.dmg"
 hdiutil create -volname 'PinFenster Experimental' -srcfolder "$stage" -ov -format UDZO "$image"
 hdiutil verify "$image"
-shasum -a 256 "$image" > "$image.sha256"
+(cd dist && shasum -a 256 "$(basename "$image")" > "$(basename "$image").sha256")
 echo "Packaged $image"

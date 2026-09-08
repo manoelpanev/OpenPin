@@ -42,6 +42,9 @@ if "$adhoc"; then
   echo 'EXPERIMENTAL: ad-hoc signed, not notarized; permission identity changes on rebuild.'
 else
   codesign --force --options runtime --timestamp=none --sign "$identity" build/PinFenster.app
+  if [ ! -f .signing-identity.local ] && [ -z "${SIGNING_IDENTITY:-}" ]; then
+    printf '%s\n' "$identity" > .signing-identity.local
+  fi
 fi
 codesign --verify --strict build/PinFenster.app
 echo 'Built build/PinFenster.app'

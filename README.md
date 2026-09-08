@@ -38,7 +38,7 @@ bash scripts/test.sh
 bash scripts/build.sh
 ```
 
-Normal local builds require a valid code-signing identity. If exactly one identity is available it is selected; otherwise set `SIGNING_IDENTITY` to its SHA-1 fingerprint or save that fingerprint in `.signing-identity.local` (git-ignored). Keep the same certificate, bundle identifier, and installation location for local updates. The build stops if signing cannot be completed; it never silently falls back to ad-hoc signing.
+Normal local builds require a valid code-signing identity. If exactly one identity is available it is selected and, after successful signing, its fingerprint is saved in `.signing-identity.local` (git-ignored) for later builds. Otherwise set `SIGNING_IDENTITY` to the certificate's SHA-1 fingerprint or save that fingerprint in `.signing-identity.local` yourself. Keep the same certificate, bundle identifier, and installation location for local updates. The build stops if signing cannot be completed; it never silently falls back to ad-hoc signing.
 
 ```sh
 # Explicitly opt into an unnotarized experimental build:
