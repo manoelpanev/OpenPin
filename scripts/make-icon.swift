@@ -1,4 +1,4 @@
-// Draws the OpenPin app icon (a floating pushpin on a teal squircle) into an .iconset folder plus a 512 px PNG.
+// Draws the OpenPin app icon (a white pushpin on a black squircle) into an .iconset folder plus a 512 px PNG.
 // Usage: swiftc -O -o make-icon scripts/make-icon.swift && ./make-icon <output directory>
 import AppKit
 
@@ -18,11 +18,16 @@ func draw(size s: CGFloat) -> NSBitmapImageRep {
     let shape = squircle(in: plate)
     context.saveGState()
     shape.addClip()
-    NSGradient(colors: [NSColor(red: 0.13, green: 0.58, blue: 0.51, alpha: 1), NSColor(red: 0.06, green: 0.40, blue: 0.35, alpha: 1)])!
+    NSGradient(colors: [NSColor(white: 0.20, alpha: 1), NSColor(white: 0.06, alpha: 1)])!
         .draw(in: plate, angle: -90)
     // Barely-there light from the top keeps the plate from looking flat.
-    NSGradient(colorsAndLocations: (NSColor(white: 1, alpha: 0.10), 0), (NSColor(white: 1, alpha: 0), 0.7))!
+    NSGradient(colorsAndLocations: (NSColor(white: 1, alpha: 0.08), 0), (NSColor(white: 1, alpha: 0), 0.7))!
         .draw(in: plate, angle: -90)
+    // Hairline edge so the dark plate separates from dark backgrounds.
+    let edge = squircle(in: plate.insetBy(dx: s * 0.004, dy: s * 0.004))
+    edge.lineWidth = s * 0.008
+    NSColor(white: 1, alpha: 0.12).setStroke()
+    edge.stroke()
     context.restoreGState()
 
     // Pushpin, drawn upright then tilted.
