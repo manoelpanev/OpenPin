@@ -1,26 +1,54 @@
 # OpenPin
 
-OpenPin keeps a pinned app window one click away as a **floating app icon**. Each pinned window becomes a small levitating icon (Telegram, Spotify, WhatsApp, …) that stays above ordinary windows. Click the icon and the **original window comes out of it**: it is moved to the icon's position on the icon's screen and brought to the front. Switch to another app and the icon floats back.
+<img src="Resources/AppIcon.png" width="96" alt="OpenPin icon" align="right">
 
-A **live view** of the window is still available: right-click the icon and choose *Live-Ansicht anzeigen*, or use **Fenster → Live-Ansichten anzeigen** (⌘L). The live view grows out of the icon's corner, and *Als Symbol* shrinks it back into the icon. The live view uses a floating native NSPanel and ScreenCaptureKit; it does not change the original application's window level.
+**Keep a window one click away, as a floating app icon.**
 
-## Use
+Pin Telegram, Spotify, WhatsApp or any other window. It turns into a small hovering icon that stays above everything else. Click the icon and the window comes out of it, right where the icon is. Click the little pill at the window's corner (or press ⌃⌥P) and it goes back in. That's it.
 
-1. Open `build/OpenPin.app` and allow Accessibility access for the window list and for moving/raising originals.
-2. Search for an app and choose **Anheften**. macOS may ask for screen recording access, which the live view needs.
-3. The app icon appears floating at the top right and gently hovers. Drag it anywhere, on any display.
-4. **Click the icon**: the original window appears at the icon's position and gets focus. When you switch apps, the icon returns.
-5. **Back into the icon**: while the window is out, a small pill with the app icon and a chevron sits at the window's top-right corner. Click it, press **⌃⌥P**, or choose *Fenster zurück ins Symbol* in the menu bar. The window disappears (hidden, or minimized when the app has other windows) and the icon pops back.
-6. **Right-click the icon** for *Original öffnen*, *Live-Ansicht anzeigen* and *Lösen*. In the live view, *Original öffnen ↗* hands off to the original and *Als Symbol ⌄* returns to the icon.
-7. **Lösen**, closing the live view, or **Alle lösen** ends a pin. Closing the management window leaves the icons running; quitting OpenPin stops them.
+Made for people who keep one or two windows around all day but don't want them in the way: a chat, a player, a terminal, a reference document.
 
-**Alle pausieren** hides the icons and views; capture remains active until released. Reduced-motion settings disable the hover, pop and grow animations.
+## Install (2 minutes)
 
-Images remain in memory on your Mac: no files are recorded, no audio is captured, and nothing is uploaded. Screen recording permission is required even though OpenPin does not save recordings. The capture filter selects only the chosen window.
+1. Download `OpenPin-…-universal.dmg` from the [latest release](https://github.com/manoelpanev/OpenPin/releases/latest). Works on Apple Silicon and Intel, macOS 14 or newer.
+2. Open the DMG and drag **OpenPin** into **Applications**.
+3. First launch: right-click OpenPin → **Open** → **Open**. The build is not notarized, so macOS asks once.
+4. When OpenPin asks, allow **Accessibility** (System Settings → Privacy & Security → Accessibility). This is what lists windows and moves them.
+5. Optional: allow **Screen Recording** only if you want the live preview (right-click an icon → *Live-Ansicht anzeigen*). Nothing is recorded or saved.
+
+Then search for an app in OpenPin, click **Anheften**, and the icon appears at the top right.
+
+## Or let your AI do it
+
+Paste this into ChatGPT, Claude, Copilot or any assistant that can run commands on your Mac:
+
+```text
+Install OpenPin on my Mac from https://github.com/manoelpanev/OpenPin/releases/latest:
+download the universal DMG, verify it against the .sha256 file, copy OpenPin.app to
+/Applications, remove the quarantine flag (xattr -d com.apple.quarantine), launch it,
+and open System Settings → Privacy & Security → Accessibility so I can enable OpenPin.
+Then tell me in two sentences how to pin a window and how to send it back to its icon.
+```
+
+## Using it
+
+| You want to… | Do this |
+| --- | --- |
+| Pin a window | OpenPin → search the app → **Anheften** |
+| Bring the window out | Click its floating icon |
+| Put it back into the icon | Click the pill at the window's top-right corner, press **⌃⌥P**, or menu bar → *Fenster zurück ins Symbol* |
+| Move the icon | Drag it, on any display |
+| See a live preview instead | Right-click the icon → *Live-Ansicht anzeigen* (or ⌘L); *Als Symbol* shrinks it back |
+| Unpin | Right-click the icon → *Lösen*, or **Alle lösen** |
+| Hide all icons for a while | **Alle pausieren** |
+
+Closing the OpenPin window keeps the icons running; quitting OpenPin stops them. Pins are not restored after quitting.
 
 ## Limits
 
-Protected content, minimized windows, system dialogs and some fullscreen/Space combinations may behave differently. Moving the original to the icon depends on the app honoring accessibility position changes; a window larger than the icon's screen is aligned to that screen's edge. The live view is not directly interactive: clicks open the original rather than forwarding input into a video. Pins are not restored after quitting.
+Experimental. Fullscreen and Spaces, system dialogs and apps that ignore accessibility position changes may behave differently. A window larger than the icon's screen is aligned to that screen's edge. The live view is not interactive: clicking it opens the original.
+
+Privacy: everything stays on your Mac. No files are recorded, no audio is captured, nothing is uploaded.
 
 See [TEST-RESULTS.md](TEST-RESULTS.md) for native test evidence and remaining untested cases. Geometry tests alone do not prove a working live stream or correct system window ordering.
 
