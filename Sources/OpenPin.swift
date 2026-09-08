@@ -150,7 +150,7 @@ struct PinInterface: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label(model.access ? "Zugriff bereit" : "Zugriff benötigt", systemImage: model.access ? "checkmark.shield" : "lock")
                         .font(.system(size: 12, weight: .medium)).foregroundStyle(model.access ? accent : .orange)
-                    Text("Schwebende Live-Ansicht\nKeine Speicherung · Kein Ton").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
+                    Text("Schwebendes App-Symbol\nKeine Speicherung · Kein Ton").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
                     Button("Bedienungshilfen…") { model.permissions() }.buttonStyle(.link).font(.system(size: 12))
                     Divider().padding(.vertical, 4)
                     Button("Bildschirmaufnahme…") { model.desktopSettings() }.buttonStyle(.link).font(.system(size: 12))
@@ -161,7 +161,7 @@ struct PinInterface: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(model.pinnedOnly ? "Deine angehefteten Fenster" : "Dein Fenster. An seinem Platz.").font(.system(size: 25, weight: .bold))
-                        Text("Live-Ansicht anheften. Zum Bedienen das Original öffnen.").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text("Das App-Symbol schwebt oben. Ein Klick holt das Fenster heraus.").font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button { model.engine.refresh() } label: { Image(systemName: "arrow.clockwise") }
@@ -206,9 +206,9 @@ struct PinInterface: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 7) {
                         Circle().fill(model.paused ? Color.orange : accent).frame(width: 7, height: 7)
-                        Text(model.paused ? "Live-Ansichten ausgeblendet" : "\(model.pinnedCount) Live-Ansichten angeheftet").font(.system(size: 12, weight: .medium))
+                        Text(model.paused ? "Symbole ausgeblendet" : "\(model.pinnedCount) Fenster angeheftet").font(.system(size: 12, weight: .medium))
                     }
-                    Text("Die Live-Ansicht bleibt oben. Ein Klick öffnet das Original; beim App-Wechsel erscheint die Ansicht wieder. Jedes Fenster zeigt sein App-Symbol.")
+                    Text("Jedes angeheftete Fenster schwebt als App-Symbol oben. Klick auf das Symbol öffnet das Original; beim App-Wechsel schwebt das Symbol wieder. Rechtsklick zeigt die Live-Ansicht, „Als Symbol“ zieht sie zurück.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }.padding(.top, 12)
             }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)

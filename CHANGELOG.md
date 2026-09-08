@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 – Floating app icons
+
+- Each pin is now a levitating app icon (104 pt bubble, 64 pt icon rasterized at display density) with a live dot, hover loop, spring pop and drag support on any display.
+- Clicking the icon opens the original window: it is moved to the icon's position on the icon's screen, activated through Launch Services and raised. The icon bursts away and returns on the next app switch.
+- The live view is opt-in: right-click → Live-Ansicht anzeigen or ⌘L. It grows out of the icon's corner; „Als Symbol“ shrinks it back. Geometry is covered by four new tests.
+- Handoff grace period prevents the icon from flickering back before the target app is in front. Reduced motion disables the animations.
+
 ## 0.3.0 – OpenPin live views, local build
 
 - Renamed the source, executable, app bundle, interface and build artifacts to OpenPin. Retained the bundle identifier for existing permissions.

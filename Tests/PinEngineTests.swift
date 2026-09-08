@@ -21,6 +21,19 @@ import Foundation
         for (name, candidates, expected) in cases {
             precondition(uniqueSourceIndex(pid: 10, frame: frame, candidates: candidates) == expected, name)
         }
+
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1055)
+        let bubble = CGRect(x: 1804, y: 939, width: bubbleSize.width, height: bubbleSize.height)
+        let view = CGSize(width: 520, height: 424)
+        let expanded = frameSharingTopRight(of: bubble, size: view, within: screen)
+        let geometry: [(String, Bool)] = [
+            ("live view grows out of the bubble's top-right corner", expanded == CGRect(x: 1388, y: 619, width: 520, height: 424)),
+            ("bubble returns to the same corner after collapsing", frameSharingTopRight(of: expanded, size: bubbleSize, within: screen) == bubble),
+            ("a bubble at the left edge expands inside the screen", frameSharingTopRight(of: CGRect(x: 4, y: 500, width: bubbleSize.width, height: bubbleSize.height), size: view, within: screen).minX == 0),
+            ("a view taller than the screen is pushed down to the screen bottom", frameSharingTopRight(of: bubble, size: CGSize(width: 520, height: 2000), within: screen).origin == CGPoint(x: 1388, y: 0))
+        ]
+        for (name, passed) in geometry { precondition(passed, name) }
         print("\(cases.count)/\(cases.count) capture-source identity tests passed")
+        print("\(geometry.count)/\(geometry.count) bubble geometry tests passed")
     }
 }

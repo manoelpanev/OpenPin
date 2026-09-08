@@ -1,4 +1,21 @@
-# OpenPin native test — 2026-09-08
+# OpenPin native tests — 2026-09-08
+
+## 0.4.0 floating icon: passed for Spotify
+
+Driven through the accessibility tree and WindowServer metadata on a three-display setup (built-in 1512×982 main, two 1920×1080 externals).
+
+| Check | Observed result |
+| --- | --- |
+| Icon bubble | Pinning Spotify created a 104×104 layer-3 window „Spotify · OpenPin Symbol“ with the Spotify icon, shadow and green live dot; screenshot showed it crisp next to Launchpad icons. |
+| Click opens original | An accessibility press on the bubble hid it; after 2 s Spotify was the frontmost process. With the earlier direct `activate()` call this failed (`activate=0`), which is why handoff now goes through Launch Services. |
+| Window placed at the icon | Spotify's 1512×893 window moved from the left display (−1601, 154) to the icon's display at (0, 39): the icon's corner, clamped to the screen edge because the window is wider than the space left of the icon. |
+| Icon returns | Activating Finder brought the bubble back at the same position. |
+| Live view grows from the icon | ⌘L opened the 520×352 panel sharing the bubble's top-right corner (2900, −56 vs. bubble 3324, −56). |
+| Collapse | „Als Symbol“ removed the panel and placed the bubble back at (3324, −56). |
+| Tests and build | 8 capture-source and 4 bubble-geometry tests pass; signed local build succeeded. |
+
+Not tested this round: real mouse drag of the bubble, right-click menu, multiple simultaneous bubbles, reduced-motion path, and apps that ignore accessibility position changes.
+
 
 ## Live-view result: passed for Spotify
 
