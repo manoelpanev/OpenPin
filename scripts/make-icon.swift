@@ -18,25 +18,17 @@ func draw(size s: CGFloat) -> NSBitmapImageRep {
     let shape = squircle(in: plate)
     context.saveGState()
     shape.addClip()
-    NSGradient(colors: [NSColor(red: 0.16, green: 0.62, blue: 0.54, alpha: 1), NSColor(red: 0.05, green: 0.36, blue: 0.31, alpha: 1)])!
+    NSGradient(colors: [NSColor(red: 0.13, green: 0.58, blue: 0.51, alpha: 1), NSColor(red: 0.06, green: 0.40, blue: 0.35, alpha: 1)])!
         .draw(in: plate, angle: -90)
-    // Soft light from the top.
-    NSGradient(colorsAndLocations: (NSColor(white: 1, alpha: 0.20), 0), (NSColor(white: 1, alpha: 0), 0.6))!
+    // Barely-there light from the top keeps the plate from looking flat.
+    NSGradient(colorsAndLocations: (NSColor(white: 1, alpha: 0.10), 0), (NSColor(white: 1, alpha: 0), 0.7))!
         .draw(in: plate, angle: -90)
-    // Floating ring: the bubble the pin lives in.
-    let ringRect = plate.insetBy(dx: plate.width * 0.20, dy: plate.height * 0.20)
-    let ring = NSBezierPath(ovalIn: ringRect)
-    ring.lineWidth = s * 0.028
-    NSColor(white: 1, alpha: 0.16).setStroke()
-    ring.stroke()
-    NSColor(white: 1, alpha: 0.07).setFill()
-    ring.fill()
     context.restoreGState()
 
     // Pushpin, drawn upright then tilted.
     let pin = NSBezierPath()
-    let cx = plate.midX, top = plate.maxY - plate.height * 0.20
-    let u = plate.height
+    let cx = plate.midX, top = plate.maxY - plate.height * 0.16
+    let u = plate.height * 1.08
     pin.append(NSBezierPath(roundedRect: CGRect(x: cx - 0.17 * u, y: top - 0.10 * u, width: 0.34 * u, height: 0.10 * u), xRadius: 0.03 * u, yRadius: 0.03 * u))
     let body = NSBezierPath()
     body.move(to: CGPoint(x: cx - 0.11 * u, y: top - 0.10 * u))
@@ -54,15 +46,15 @@ func draw(size s: CGFloat) -> NSBitmapImageRep {
     pin.append(needle)
     var tilt = AffineTransform(translationByX: plate.midX, byY: plate.midY)
     tilt.rotate(byDegrees: -32)
-    tilt.translate(x: -plate.midX, y: -plate.midY + 0.02 * u)
+    tilt.translate(x: -plate.midX, y: -plate.midY + 0.03 * u)
     pin.transform(using: tilt)
 
     context.saveGState()
     shape.addClip()
     let shadow = NSShadow()
-    shadow.shadowColor = NSColor(white: 0, alpha: 0.35)
-    shadow.shadowBlurRadius = s * 0.03
-    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.02)
+    shadow.shadowColor = NSColor(white: 0, alpha: 0.28)
+    shadow.shadowBlurRadius = s * 0.025
+    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.015)
     shadow.set()
     NSColor.white.setFill()
     pin.fill()
