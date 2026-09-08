@@ -26,25 +26,25 @@ if ! "$adhoc"; then
   fi
   if [ "$identity" = '-' ]; then echo 'Use --adhoc explicitly for ad-hoc signing.' >&2; exit 2; fi
 fi
-mkdir -p build/cache build/objects build/PinFenster.app/Contents/MacOS
-cp Resources/Info.plist build/PinFenster.app/Contents/Info.plist
+mkdir -p build/cache build/objects build/OpenPin.app/Contents/MacOS
+cp Resources/Info.plist build/OpenPin.app/Contents/Info.plist
 objects=()
 for architecture in $architectures; do
-  object="build/objects/PinFenster-$architecture"
-  xcrun swiftc -O -parse-as-library Sources/PinFenster.swift \
+  object="build/objects/OpenPin-$architecture"
+  xcrun swiftc -O -parse-as-library Sources/*.swift \
     -module-cache-path build/cache -target "$architecture-apple-macos14.0" \
     -framework AppKit -framework SwiftUI -framework ApplicationServices -o "$object"
   objects+=("$object")
 done
-xcrun lipo -create "${objects[@]}" -output build/PinFenster.app/Contents/MacOS/PinFenster
+xcrun lipo -create "${objects[@]}" -output build/OpenPin.app/Contents/MacOS/OpenPin
 if "$adhoc"; then
-  codesign --force --sign - build/PinFenster.app
+  codesign --force --sign - build/OpenPin.app
   echo 'EXPERIMENTAL: ad-hoc signed, not notarized; permission identity changes on rebuild.'
 else
-  codesign --force --options runtime --timestamp=none --sign "$identity" build/PinFenster.app
+  codesign --force --options runtime --timestamp=none --sign "$identity" build/OpenPin.app
   if [ ! -f .signing-identity.local ] && [ -z "${SIGNING_IDENTITY:-}" ]; then
     printf '%s\n' "$identity" > .signing-identity.local
   fi
 fi
-codesign --verify --strict build/PinFenster.app
-echo 'Built build/PinFenster.app'
+codesign --verify --strict build/OpenPin.app
+echo 'Built build/OpenPin.app'

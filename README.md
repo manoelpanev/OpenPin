@@ -1,63 +1,56 @@
-# PinFenster
+# OpenPin
 
-A small, native macOS utility for keeping selected **original windows** in front using Accessibility APIs. Search your open windows, mark several, pause them, or release each one individually.
+OpenPin keeps a **live view of a selected window** above ordinary app windows. Each view shows the source application's icon and name. Click the image or **Original öffnen** to use the real window; when you switch to another app, the live view returns.
 
-**Experimental:** this is automatic window raising, not a guaranteed system-wide always-on-top window level. Some apps ignore raising, take focus, or behave differently across Spaces and full-screen modes. The current version has passed ordering-policy tests; end-to-end pinning across third-party apps is not yet validated. Do not rely on it for critical workflows.
-
-## Download
-
-Get the `.dmg` from [Releases](https://github.com/manoelpanev/PinFenster/releases). The initial release supports Apple Silicon and Intel Macs running macOS 14 or newer.
-
-The experimental download is **ad-hoc signed and not notarized**. Gatekeeper may block it. It is not a Developer ID distribution build. Review the source and Apple's guidance before deciding whether to run it; building locally is another option. Do not disable system protections.
+The live view uses a floating native NSPanel and ScreenCaptureKit. It does not change the original application's window level. The previous AXRaise approach failed a native Spotify/Chrome test and has been removed from the running engine.
 
 ## Use
 
-1. Open the DMG and drag PinFenster into Applications.
-2. Open the app and grant it Accessibility access in System Settings → Privacy & Security → Accessibility.
-3. Find your app or window using search and choose **Anheften** (pin).
-4. Choose **Lösen** to release a window, or **Alle lösen** to release all windows. The menu-bar icon also provides Release all and Quit.
+1. Open `build/OpenPin.app` and allow Accessibility access for the window list and opening originals.
+2. Search for an app and choose **Anheften**. macOS may ask for screen recording access for the live view.
+3. Drag the floating view by its title bar or resize it at its edges. Its header contains the application's icon.
+4. Click the image or **Original öffnen** to operate the original. Switch apps to restore the floating view.
+5. Choose **Lösen**, close the floating view, or use **Alle lösen**. Closing the management window leaves the views running; quitting OpenPin stops them.
 
-The interface is currently German. Closing the management window leaves the menu-bar helper running. Quitting stops all raising; pins are not restored after restart. No screen recording permission is needed.
+**Fenster → Live-Ansichten anzeigen** (⌘L) brings your views back explicitly. **Alle pausieren** hides the views; capture remains active until released.
 
-### Clicking the desktop
+Images remain in memory on your Mac: no files are recorded, no audio is captured, and nothing is uploaded. Screen recording permission is required even though OpenPin does not save recordings. The capture filter selects only the chosen window.
 
-macOS can move every window aside when you click the wallpaper. PinFenster does not override that feature. In Desktop & Dock, set the wallpaper-click desktop-reveal option to **Only in Stage Manager**, with Stage Manager disabled, if you do not want that behavior. This setting affects all windows, not just pinned ones. PinFenster does not change it automatically.
+## Limits
 
-## How it works
+Protected content, minimized windows, system dialogs and some fullscreen/Space combinations may behave differently. The live view is not directly interactive: clicks open the original rather than forwarding input into a video. Stopping capture or closing a source may require pinning it again. Pins are not restored after quitting.
 
-The helper checks roughly every 300 ms whether an ordinary overlapping window covers a selected window. It requests `AXRaise` only when needed. It does not synthesize input, activate the target application, capture pixels, or create mirror windows. It respects hidden/minimized windows and pauses raising while a mouse button is down or the management app is frontmost.
+See [TEST-RESULTS.md](TEST-RESULTS.md) for native test evidence and remaining untested cases. Geometry-policy tests alone do not prove a working live stream or correct system window ordering.
 
-Two pinned windows do not repeatedly raise over each other. After three AX errors, the affected pin is released. A detected focus change to a target pauses raising. Delayed focus changes may escape this check, and a successful AX response does not prove that the target actually moved in front.
+## Build
 
-## Build and test
-
-Requires Xcode with the macOS SDK and Swift compiler. No third-party dependencies.
+Requires the macOS SDK and Swift compiler. No third-party dependencies. macOS 14 or newer.
 
 ```sh
 bash scripts/test.sh
 bash scripts/build.sh
 ```
 
-Normal local builds require a valid code-signing identity. If exactly one identity is available it is selected and, after successful signing, its fingerprint is saved in `.signing-identity.local` (git-ignored) for later builds. Otherwise set `SIGNING_IDENTITY` to the certificate's SHA-1 fingerprint or save that fingerprint in `.signing-identity.local` yourself. Keep the same certificate, bundle identifier, and installation location for local updates. The build stops if signing cannot be completed; it never silently falls back to ad-hoc signing.
+The build requires a valid signing identity. Set `SIGNING_IDENTITY` if more than one is available. When exactly one identity is found, the script uses it and saves its fingerprint in the git-ignored `.signing-identity.local`. Reuse the same identity and bundle identifier for local updates.
 
 ```sh
-# Explicitly opt into an unnotarized experimental build:
+# Explicit experimental distribution build, not notarized:
 bash scripts/build.sh --adhoc --universal
 bash scripts/package.sh
 ```
 
-Output: `build/PinFenster.app` and `dist/PinFenster-0.2.0-experimental-universal.dmg`.
+Outputs are `build/OpenPin.app` and `dist/OpenPin-0.3.0-experimental-universal.dmg` for the universal packaging command. The current local update has not been published. Existing [GitHub releases](https://github.com/manoelpanev/PinFenster/releases) use the former PinFenster name and behavior.
 
-## Signing
+The bundle identifier remains `local.mrpnv.pinfenster` for local permission continuity. Local Apple Development signing is not Developer ID notarization. Ad-hoc rebuilds may require granting permissions again.
 
-The bundle identifier is `local.mrpnv.pinfenster`, retained for compatibility with existing local installations. Stable certificate signing can preserve the designated requirement across rebuilds; it is not an unconditional guarantee that macOS will never ask for consent again. Switching to ad-hoc signing changes that identity and may invalidate prior grants.
+## Implementation
 
-An Apple Development or self-signed certificate is for local development. Public distribution without the usual unnotarized-app warnings requires **Developer ID Application signing and Apple notarization**. No signing certificates, private keys, or account credentials are included in this repository. CI deliberately builds an ad-hoc experimental artifact and cannot preserve your local developer signing identity.
+Accessibility identifies the source window by process and geometry. ScreenCaptureKit streams that window into an AVSampleBufferDisplayLayer at up to 30 fps, with a maximum capture dimension of 1600 pixels. A nonactivating floating NSPanel keeps it above ordinary windows without repeatedly activating the source app. User-requested handoff activates the source; the next app activation restores the view. All capture objects are stopped on release.
 
-References: [Apple Developer ID](https://developer.apple.com/developer-id/), [Apple notarization documentation](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+A read-only diagnostic command prints WindowServer metadata:
+`build/OpenPin.app/Contents/MacOS/OpenPin --window-order`.
+It must run in a session with access to WindowServer. Sandbox-denied access can produce an empty list.
 
-## Contributing
+References: [Apple ScreenCaptureKit sample](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos), [Apple window collection behavior](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces), [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Fork this repository, create a branch in your fork, and open a pull request. Everyone can fork and propose changes; write access to this repository is limited to maintainers. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-MIT licensed. No telemetry, network requests, or captured window content.
+MIT licensed. See [CONTRIBUTING.md](CONTRIBUTING.md).

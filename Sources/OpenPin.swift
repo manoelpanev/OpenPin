@@ -30,20 +30,14 @@ struct VisibleWindow {
     let pid: pid_t
     let frame: CGRect
 }
-enum RaiseDecision { case unavailable, clear, covered }
-func raiseDecision(target: VisibleWindow, ordered: [VisibleWindow], pinned: [VisibleWindow]) -> RaiseDecision {
-    let positions = ordered.indices.filter { ordered[$0].pid == target.pid && sameRect(ordered[$0].frame, target.frame) }
-    guard positions.count == 1, let position = positions.first else { return .unavailable }
-    let covered = ordered.prefix(position).contains { other in
-        other.frame.intersects(target.frame) && !pinned.contains { $0.pid == other.pid && sameRect($0.frame, other.frame) }
-    }
-    return covered ? .covered : .clear
+func uniqueSourceIndex(pid: pid_t, frame: CGRect, candidates: [VisibleWindow]) -> Int? {
+    let matches = candidates.indices.filter { candidates[$0].pid == pid && sameRect(candidates[$0].frame, frame) }
+    return matches.count == 1 ? matches.first : nil
 }
 
 final class PinEngine {
-    private let queue = DispatchQueue(label: "local.pinfenster.windows", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "local.openpin.windows", qos: .userInitiated)
     private var entries: [WindowEntry] = []
-    private var errors: [UUID: Int] = [:]
     private var timer: DispatchSourceTimer?
     private var paused = false
     private var lastScan = Date.distantPast
@@ -56,17 +50,17 @@ final class PinEngine {
         timer = source; source.resume()
     }
     func refresh() { queue.async { self.scan() } }
-    func toggle(_ id: UUID) {
+    func setPin(_ id: UUID, pinned: Bool, note: String) {
         queue.async {
             guard self.trusted, let i = self.entries.firstIndex(where: { $0.id == id }) else { return }
-            self.entries[i].pinned.toggle(); self.entries[i].note = ""; self.errors[id] = nil
+            self.entries[i].pinned = pinned; self.entries[i].note = note
             self.publish()
         }
     }
     func releaseAll() {
         queue.async {
             for i in self.entries.indices { self.entries[i].pinned = false; self.entries[i].note = "" }
-            self.errors.removeAll(); self.paused = false; self.publish()
+            self.paused = false; self.publish()
         }
     }
     func setPaused(_ value: Bool) { queue.async { self.paused = value; self.publish() } }
@@ -76,7 +70,7 @@ final class PinEngine {
     }
     private func scan() {
         lastScan = Date(); trusted = AXIsProcessTrusted()
-        guard trusted else { entries.removeAll(); errors.removeAll(); publish(); return }
+        guard trusted else { entries.removeAll(); publish(); return }
         var next: [WindowEntry] = []
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
             let handle = AXUIElementCreateApplication(app.processIdentifier)
@@ -99,58 +93,10 @@ final class PinEngine {
             }
         }
         entries = next.sorted { ($0.app, $0.title) < ($1.app, $1.title) }
-        let ids = Set(entries.map(\.id)); errors = errors.filter { ids.contains($0.key) }
         publish()
     }
     private func tick() {
         if Date().timeIntervalSince(lastScan) > 5 { scan() }
-        guard trusted, !paused, entries.contains(where: \.pinned) else { return }
-        guard AXIsProcessTrusted() else { scan(); return }
-        guard NSEvent.pressedMouseButtons == 0 else { return }
-        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        guard front != ProcessInfo.processInfo.processIdentifier else { return }
-        // Metadata is sufficient; no capture or window titles from CG are needed.
-        let infos = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
-        let normal: [VisibleWindow] = infos.compactMap { info in
-            guard (info[kCGWindowLayer as String] as? Int) == 0,
-                  let pid = info[kCGWindowOwnerPID as String] as? Int32,
-                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation: dict) else { return nil }
-            return VisibleWindow(pid: pid, frame: frame)
-        }
-        let pins: [VisibleWindow] = entries.filter(\.pinned).compactMap { entry in
-            guard let frame = axRect(entry.element) else { return nil }; return VisibleWindow(pid: entry.pid, frame: frame)
-        }
-        var changed = false
-        for i in entries.indices where entries[i].pinned {
-            let entry = entries[i]
-            guard let app = NSRunningApplication(processIdentifier: entry.pid), !app.isTerminated else { continue }
-            if app.isHidden || (axValue(entry.element, kAXMinimizedAttribute) as? Bool) == true {
-                if entries[i].note != "Pausiert · Fenster ausgeblendet" { entries[i].note = "Pausiert · Fenster ausgeblendet"; changed = true }; continue
-            }
-            guard let rect = axRect(entry.element) else { continue }
-            let decision = raiseDecision(target: VisibleWindow(pid: entry.pid, frame: rect), ordered: normal, pinned: pins)
-            guard decision != .unavailable else {
-                if entries[i].note != "Wartet · Fenster nicht sichtbar oder nicht eindeutig" {
-                    entries[i].note = "Wartet · Fenster nicht sichtbar oder nicht eindeutig"; changed = true
-                }; continue
-            }
-            if !entries[i].note.isEmpty { entries[i].note = ""; changed = true }
-            guard decision == .covered else { continue }
-            let result = AXUIElementPerformAction(entry.element, kAXRaiseAction as CFString)
-            if front != entry.pid && NSWorkspace.shared.frontmostApplication?.processIdentifier == entry.pid {
-                paused = true; entries[i].note = "Pausiert · App hat den Eingabefokus übernommen"; publish(); return
-            }
-            if result == .success { errors[entry.id] = 0 }
-            else {
-                errors[entry.id, default: 0] += 1
-                if errors[entry.id, default: 0] >= 3 {
-                    entries[i].pinned = false
-                    entries[i].note = "Nicht unterstützt · Vorholen fehlgeschlagen (\(result.rawValue))"; changed = true
-                }
-            }
-        }
-        if changed { publish() }
     }
 }
 
@@ -161,15 +107,18 @@ final class PinModel: ObservableObject {
     @Published var query = ""
     @Published var pinnedOnly = false
     let engine = PinEngine()
+    let live = LivePinController()
     var statusChanged: ((Int, Bool) -> Void)?
     var pinnedCount: Int { windows.filter(\.pinned).count }
     var filtered: [WindowEntry] {
         windows.filter { (!pinnedOnly || $0.pinned) && (query.isEmpty || "\($0.app) \($0.title)".localizedCaseInsensitiveContains(query)) }
     }
     init() {
+        live.changed = { [weak self] id, pinned, note in self?.engine.setPin(id, pinned: pinned, note: note) }
         engine.onChange = { [weak self] entries, access, paused in
             guard let self else { return }
             self.windows = entries; self.access = access; self.paused = paused
+            self.live.reconcile(entries, paused: paused)
             self.statusChanged?(self.pinnedCount, paused)
         }; engine.start()
     }
@@ -179,8 +128,9 @@ final class PinModel: ObservableObject {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
     func desktopSettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!)
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
+    func releaseAll() { live.releaseAll(); engine.releaseAll() }
 }
 private let accent = Color(red: 0.10, green: 0.49, blue: 0.43)
 struct PinInterface: View {
@@ -190,7 +140,7 @@ struct PinInterface: View {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 10) {
                     Image(systemName: "pin.fill").font(.system(size: 22)).foregroundStyle(accent)
-                    Text("PinFenster").font(.system(size: 21, weight: .bold))
+                    Text("OpenPin").font(.system(size: 21, weight: .bold))
                 }.padding(.top, 12)
                 VStack(spacing: 6) {
                     navigation("Alle Fenster", icon: "macwindow.on.rectangle", count: model.windows.count, selected: !model.pinnedOnly) { model.pinnedOnly = false }
@@ -200,10 +150,10 @@ struct PinInterface: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label(model.access ? "Zugriff bereit" : "Zugriff benötigt", systemImage: model.access ? "checkmark.shield" : "lock")
                         .font(.system(size: 12, weight: .medium)).foregroundStyle(model.access ? accent : .orange)
-                    Text("Originalfenster\nKeine Bildschirmaufnahme").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
+                    Text("Schwebende Live-Ansicht\nKeine Speicherung · Kein Ton").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
                     Button("Bedienungshilfen…") { model.permissions() }.buttonStyle(.link).font(.system(size: 12))
                     Divider().padding(.vertical, 4)
-                    Button("Desktop-Verhalten…") { model.desktopSettings() }.buttonStyle(.link).font(.system(size: 12))
+                    Button("Bildschirmaufnahme…") { model.desktopSettings() }.buttonStyle(.link).font(.system(size: 12))
                 }
             }.padding(22).frame(width: 210).frame(maxHeight: .infinity).background(.regularMaterial)
             Divider()
@@ -211,7 +161,7 @@ struct PinInterface: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(model.pinnedOnly ? "Deine angehefteten Fenster" : "Dein Fenster. An seinem Platz.").font(.system(size: 25, weight: .bold))
-                        Text("Anheften, direkt bedienen und jederzeit wieder lösen.").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text("Live-Ansicht anheften. Zum Bedienen das Original öffnen.").font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button { model.engine.refresh() } label: { Image(systemName: "arrow.clockwise") }
@@ -220,7 +170,7 @@ struct PinInterface: View {
                 if !model.access {
                     VStack(alignment: .leading, spacing: 14) {
                         Label("Einmal Zugriff erlauben", systemImage: "hand.raised.fill").font(.headline)
-                        Text("PinFenster braucht Bedienungshilfen, um deine Originalfenster nach vorne zu holen. Aktiviere PinFenster in den Systemeinstellungen. Die Liste lädt anschließend automatisch.")
+                        Text("OpenPin braucht Bedienungshilfen für die Fensterliste und zum Öffnen des Originals. Für die Live-Ansicht wird zusätzlich Bildschirmaufnahme benötigt. Die Bilder bleiben auf deinem Mac und werden nicht gespeichert.")
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                         Button("Zugriff einrichten") { model.permissions() }.buttonStyle(.borderedProminent).tint(accent)
                     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
@@ -236,7 +186,7 @@ struct PinInterface: View {
                         Spacer()
                         if model.pinnedCount > 0 {
                             Button(model.paused ? "Fortsetzen" : "Alle pausieren") { model.engine.setPaused(!model.paused) }.buttonStyle(.link)
-                            Button("Alle lösen") { model.engine.releaseAll() }.buttonStyle(.link)
+                            Button("Alle lösen") { model.releaseAll() }.buttonStyle(.link)
                         }
                     }.font(.system(size: 12)).padding(.vertical, 16)
                     ScrollView {
@@ -256,9 +206,9 @@ struct PinInterface: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 7) {
                         Circle().fill(model.paused ? Color.orange : accent).frame(width: 7, height: 7)
-                        Text(model.paused ? "Vorholen pausiert" : "\(model.pinnedCount) Fenster zum Vorholen markiert").font(.system(size: 12, weight: .medium))
+                        Text(model.paused ? "Live-Ansichten ausgeblendet" : "\(model.pinnedCount) Live-Ansichten angeheftet").font(.system(size: 12, weight: .medium))
                     }
-                    Text("Automatisches Vorholen: macOS garantiert kein dauerhaftes Obenbleiben. Bei „Schreibtisch anzeigen“ können Fenster weiterhin verschwinden.")
+                    Text("Die Live-Ansicht bleibt oben. Ein Klick öffnet das Original; beim App-Wechsel erscheint die Ansicht wieder. Jedes Fenster zeigt sein App-Symbol.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }.padding(.top, 12)
             }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -283,7 +233,7 @@ struct PinInterface: View {
                 Text(entry.title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help(entry.title)
                 if !entry.note.isEmpty { Text(entry.note).font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
             }; Spacer(minLength: 8)
-            Button { model.engine.toggle(entry.id) } label: {
+            Button { model.live.toggle(entry) } label: {
                 Label(entry.pinned ? "Lösen" : "Anheften", systemImage: entry.pinned ? "pin.slash" : "pin").frame(width: 85)
             }.buttonStyle(.bordered).tint(entry.pinned ? accent : .secondary)
                 .accessibilityLabel("\(entry.pinned ? "Lösen" : "Anheften"): \(entry.app), \(entry.title)")
@@ -298,32 +248,48 @@ final class PinApplication: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let main = NSMenu(); let parent = NSMenuItem(); main.addItem(parent)
         let appMenu = NSMenu(); parent.submenu = appMenu
-        appMenu.addItem(withTitle: "PinFenster beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "OpenPin beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let edit = NSMenuItem(); edit.title = "Bearbeiten"; main.addItem(edit); edit.submenu = NSMenu(title: "Bearbeiten")
         for (title, action, key) in [("Ausschneiden", "cut:", "x"), ("Kopieren", "copy:", "c"), ("Einfügen", "paste:", "v"), ("Alles auswählen", "selectAll:", "a")] {
             edit.submenu?.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
         }
         NSApp.mainMenu = main
+        let windowsMenu = NSMenuItem(title: "Fenster", action: nil, keyEquivalent: "")
+        windowsMenu.submenu = NSMenu(title: "Fenster")
+        let showLive = NSMenuItem(title: "Live-Ansichten anzeigen", action: #selector(showLiveViews), keyEquivalent: "l")
+        showLive.target = self
+        windowsMenu.submenu?.addItem(showLive)
+        main.addItem(windowsMenu)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        status.button?.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "PinFenster")
+        status.button?.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "OpenPin")
         let menu = NSMenu()
-        for (title, selector) in [("PinFenster öffnen", #selector(show)), ("Alle lösen", #selector(releaseAll)), ("Beenden", #selector(quit))] {
+        for (title, selector) in [("OpenPin öffnen", #selector(show)), ("Alle lösen", #selector(releaseAll)), ("Beenden", #selector(quit))] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }; status.menu = menu
         model.statusChanged = { [weak self] count, paused in self?.status.button?.title = count > 0 ? " \(count)\(paused ? " Ⅱ" : "")" : "" }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 660), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "PinFenster"; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false
+        window.title = "OpenPin"; window.titlebarAppearsTransparent = true; window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: PinInterface(model: model))
         window.minSize = NSSize(width: 900, height: 620); window.center(); show()
     }
     @objc func show() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
-    @objc func releaseAll() { model.engine.releaseAll() }
+    @objc func releaseAll() { model.releaseAll() }
+    @objc func showLiveViews() { model.engine.setPaused(false); model.live.showAll() }
+    func applicationWillTerminate(_ notification: Notification) { model.live.releaseAll() }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { show(); return true }
 }
 #if !PIN_TESTS
 @main struct PinMain {
     static func main() {
+        if CommandLine.arguments.contains("--window-order") {
+            let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+            for info in windows where (info[kCGWindowLayer as String] as? Int) == 0 || (info[kCGWindowOwnerName as String] as? String) == "OpenPin" {
+                let rect = (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+                print("\(info[kCGWindowOwnerName as String] ?? "?") layer=\(info[kCGWindowLayer as String] ?? 0) pid=\(info[kCGWindowOwnerPID as String] ?? 0) id=\(info[kCGWindowNumber as String] ?? 0) bounds=\(rect)")
+            }
+            return
+        }
         let application = NSApplication.shared
         let delegate = PinApplication()
         application.setActivationPolicy(.regular)

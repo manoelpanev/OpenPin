@@ -18,5 +18,5 @@ jobs:
         run: bash scripts/package.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: PinFenster-experimental
+          name: OpenPin-experimental
           path: dist/*
